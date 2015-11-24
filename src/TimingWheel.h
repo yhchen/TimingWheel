@@ -82,16 +82,18 @@ protected:
 
 	struct context_cb
 	{
-		const void* ident;
-		Object*	object;
-		DelayCall func;
-		void* param;
-		unsigned long long interval;
-		unsigned long long expireTick;
-		unsigned int twice;
-		unsigned int maxTwice;
-		bool weakReference;
-		bool removed;
+		const void* ident;	// 唯一身份标识
+		Object*	object;		// callback object
+		DelayCall func;		// callback函数指针
+		void* param;		// callback参数(函数中传入)
+		unsigned long long interval;	// callback频率
+		unsigned long long expireTick;	// 下次callback时间(ms)
+		unsigned int twice;		// 当前callback次数
+		unsigned int maxTwice;	// 最大callback次数(0-不限制)
+		unsigned int wheelIdx;	// m_wheels[wheel]
+		unsigned int slotIdx;	// m_wheels[wheel]->m_slots[slot]
+		bool weakReference;		// 弱引用(不托管object对象生命周期)
+		bool removed;			// 移除标记
 	};
 
 	typedef std::list<context_cb*> 	ContextSlot;
@@ -99,23 +101,33 @@ protected:
 
 	struct Wheel
 	{
-		Wheel() :m_nSlotIdx(0), m_Slots(NULL)	{};
-		unsigned int	m_nBitCount;			//节点字节数
-		unsigned int	m_nNodeCount;			//当前轮节点数量( POW(节点字节数) )
-		unsigned int	m_nTickUnitBit;			//每个时间片代表的时间单位(log 2(m_nTickUnit) )
-		unsigned int	m_nTickUnit;			//每个时间片代表的时间单位
-		unsigned int	m_nSlotMask;			//当前结点“取模”用
-		unsigned int	m_nSlotIdx;				//记录当前时间点所指向的slotIdx
+		Wheel(	unsigned int bitCnt, 
+				unsigned int slotCnt, 
+				unsigned int slotUnitBit, 
+				unsigned int slotUnitTick, 
+				unsigned int slotMask
+			) : m_uSlotIdx(0), m_Slots(NULL), uBitCount(bitCnt), 
+				uSlotCount(slotCnt), uSlotUnitBit(slotUnitBit), 
+				uSlotUnitTick(slotUnitTick), uSlotMask(slotMask)
+			{ }
+		const unsigned int	uBitCount;		//节点字节数
+		const unsigned int	uSlotCount;		//当前轮节点数量( POW(节点字节数) )
+		const unsigned int	uSlotUnitBit;	//每个时间片代表的时间单位(log 2(m_nTickUnit) )
+		const unsigned int	uSlotUnitTick;	//每个时间片代表的时间单位
+		const unsigned int	uSlotMask;		//当前结点“取模”用
+		unsigned int	m_uSlotIdx;			//记录当前时间点所指向的slotIdx
 		ContextSlot*	m_Slots;
 	};
 
 private:
 	// 默认使用 new 和 delete 管理context_cb内存，可以拓展为对象池管理提升效率
-	virtual context_cb* __AllocContext();
-	virtual void __FreeContext(context_cb* cx);
+	virtual context_cb* __AllocContext() { return (context_cb*)malloc(sizeof(context_cb)); }
+	virtual void __FreeContext(context_cb* cx) { if (cx) free(cx); }
 
 	// 插入context
 	inline void __AddContext(context_cb* context);
+	inline void __MoveContext(context_cb* context) { __AddContext(context); }
+	inline void __RepushContext(context_cb* context) { __AddContext(context); }
 
 	// 计算时间轮与槽位下标
 	void	__GetTickPos(unsigned int expireTick, unsigned int leftTick, unsigned int &nWheelIdx, unsigned int &nSlotIdx);
@@ -124,12 +136,12 @@ private:
 	void	__CascadeTimers(Wheel& wheel);
 	void	__Callback(context_cb& context);
 
-public:	// FIXME : remove where
+public:
 	unsigned long long	m_ullJiffies;			// 流逝的毫秒数
 	Wheel*				m_Wheels[WHEEL_COUNT];	// 时间轮
 	ContextMap			m_ContextMap;		// 记录回调的会话对应关系
-	unsigned int		m_nTotalTickSize;	// 记录当前注册回调的总数量(use for debug)
-	unsigned int		m_nNextCallIdent;	// 每个context_cb的唯一Ident标识
+	size_t				m_nNextCallIdent;	// 每个context_cb的唯一Ident标识
+	const void*			m_pCurrCallIdent;	// 当前正在调用中的ident
 };
 
 }

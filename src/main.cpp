@@ -8,6 +8,22 @@
 SG2D::TimingWheel* wheel;
 FILE* file = NULL;
 
+class MyObject;
+
+#define reg_call(delay, inter)	do {						\
+		MyObject* obj = new MyObject;						\
+		unsigned int delayTick = delay;						\
+		delayTick = max(1, delayTick);						\
+		unsigned int interTick = inter;						\
+		interTick = max(1, interTick);						\
+		obj->ident = wheel->delayIntervalCall(delayTick,	\
+			interTick, obj, &MyObject::MyCallback, NULL);	\
+		obj->uInternal = interTick;							\
+		obj->delayTick = wheel->m_ullJiffies + delayTick;	\
+		obj->release();										\
+	}while (false)
+
+
 class MyObject : public Object
 {
 public:
@@ -23,6 +39,7 @@ public:
 	char buf[1024];
 	unsigned long long uInternal;
 	unsigned long long delayTick;
+	const void* ident;
 };
 
 void MyObject::MyCallback(void* param, unsigned int twice)
@@ -31,13 +48,17 @@ void MyObject::MyCallback(void* param, unsigned int twice)
 	{
 		DebugBreak();
 	}
-	return;
 	sprintf_s(buf, sizeof(buf), "callback jiffies = 0x0%16X\n", wheel->m_ullJiffies);
 	if (file)
 	{
 		fwrite(buf, strlen(buf), 1, file);
 	}
 	printf(buf);
+	if (rand() % 8)
+	{
+		wheel->cancelCall(ident);
+		reg_call(this->delayTick % this->uInternal, this->uInternal);
+	}
 }
 
 
@@ -45,19 +66,6 @@ int main(int argc, char** argv)
 {
 	wheel = new SG2D::TimingWheel;;
 	fopen_s(&file, "test_out.txt", "a+");
-#define reg_call(delay, inter)	do {						\
-		MyObject* obj = new MyObject;						\
-		unsigned int delayTick = delay;						\
-		delayTick = max(1, delayTick);						\
-		unsigned int interTick = inter;						\
-		interTick = max(1, interTick);						\
-		wheel->delayIntervalCall(delayTick, interTick,		\
-				obj, &MyObject::MyCallback, NULL);			\
-		obj->uInternal = interTick;							\
-		obj->delayTick = wheel->m_ullJiffies + delayTick;	\
-		obj->release();										\
-	}while (false)
-
 	srand(time(NULL));
 	for (int i = 0; i < 10000; ++i)
 	{
