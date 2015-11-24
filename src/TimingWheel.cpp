@@ -17,12 +17,12 @@ TimingWheel::TimingWheel() :m_ullJiffies(0)
 	m_nNextCallIdent = 1;
 	for (int wIdx = 0; wIdx < WHEEL_COUNT; ++wIdx)
 	{
-		unsigned int uBitCount = ((wIdx == 0) ? WHEEL_ROOT_BIT : WHEEL_NODE_BIT);
+		unsigned int uBitCount = ((wIdx == 0) ? WORK_WHEEL_BIT : ASSIST_WHEEL_BIT);
 		unsigned int uSlotCount = 1 << uBitCount;
-		unsigned int uTickUnitBit = ((wIdx == 0) ? 0 : (WHEEL_ROOT_BIT + WHEEL_NODE_BIT * (wIdx-1)));
-		unsigned int uSlotUnitTick = ((wIdx == 0) ? 1 : m_Wheels[wIdx-1]->uSlotUnitTick << m_Wheels[wIdx-1]->uBitCount);
+		unsigned int uSlotUnitBit = ((wIdx == 0) ? 0 : (WORK_WHEEL_BIT + ASSIST_WHEEL_BIT * (wIdx-1)));
+		unsigned int uSlotUnitTick = ((wIdx == 0) ? 0 : 1 << uSlotUnitBit);
 		unsigned int uSlotMask = uSlotCount - 1;
-		m_Wheels[wIdx] = new Wheel(uBitCount, uSlotCount, uTickUnitBit, uSlotUnitTick, uSlotMask);
+		m_Wheels[wIdx] = new Wheel(uBitCount, uSlotCount, uSlotUnitBit, uSlotUnitTick, uSlotMask);
 		m_Wheels[wIdx]->m_Slots = new ContextSlot[m_Wheels[wIdx]->uSlotCount];
 		for (int sIdx = 0; sIdx < m_Wheels[wIdx]->uSlotCount; ++sIdx)
 		{
@@ -60,7 +60,9 @@ const void* TimingWheel::_registerCall(unsigned int delayMilSec, unsigned int in
 	context->ident = (void*)(m_nNextCallIdent++);
 	context->func = func;
 	context->param = param;
-	context->interval = interval;
+	// interval=0会导致逻辑上死循环，所以强制不允许此方式
+	assert(interval >= 1);
+	context->interval = max((unsigned int)1, interval);
 	context->expireTick = m_ullJiffies + delayMilSec;
 	context->twice = 0;
 	context->maxTwice = tiwce;
@@ -75,107 +77,46 @@ const void* TimingWheel::_registerCall(unsigned int delayMilSec, unsigned int in
 	return context->ident;
 }
 
-void TimingWheel::cancelCall(const void* ident)
+void	TimingWheel::cancelCall(const void* ident)
 {
 	ContextMap::iterator itcx = m_ContextMap.find(ident);
-	if (itcx != m_ContextMap.end())
+	if (itcx == m_ContextMap.end())
+		return;	// 找不到context_cb
+	context_cb* context = itcx->second;
+	if (context == NULL || context->removed == true)
+		return;	// 内容错误或被移出
+	if (ident == m_pCurrCallIdent)
+	{	// 当前正在处理中的节点，仅标记为移出状态
+		context->removed = true;
+		return;
+	}
+	Wheel& rWheel = *m_Wheels[context->wheelIdx];
+	ContextSlot& rSlot = rWheel.m_Slots[context->slotIdx];
+	for (ContextSlot::iterator itnd = rSlot.begin(); itnd != rSlot.end(); ++itnd)
 	{
-		context_cb* context = itcx->second;
-		if (ident == m_pCurrCallIdent)
-		{	// 当前正在处理中的节点，仅标记为移出状态
-			context->removed = true;
-			return;
-		}
-		Wheel& rWheel = *m_Wheels[context->wheelIdx];
-		ContextSlot& rSlot = rWheel.m_Slots[context->slotIdx];
-		for (ContextSlot::iterator itnd = rSlot.begin(); itnd != rSlot.end(); ++itnd)
+		context_cb* cx = *itnd;
+		if (!cx || cx->ident != ident)
+			continue;
+		if (!cx->weakReference && cx->object)
 		{
-			context_cb* cx = *itnd;
-			if (!cx || cx->ident != ident)
-				continue;
-			if (!cx->weakReference && cx->object)
-			{
-				cx->object->release();
-				cx->object = NULL;
-			}
-			rSlot.erase(itnd);
-			m_ContextMap.erase(itcx);
-			__FreeContext(cx);
-			return;
-		} // end for
-	}
-}
-
-// 插入context
-void TimingWheel::__AddContext(context_cb* context)
-{
-#ifdef _DEBUG
-	unsigned int uOldWIdx = context->wheelIdx, uOldSIdx = context->slotIdx;
-	__GetTickPos(context->expireTick, max((unsigned long long)0, context->expireTick - m_ullJiffies),
-		context->wheelIdx, context->slotIdx);
-	// ATTENTION :	再次注册的context_cb如果newWheelIdx == oldWheelIdx && newSlotIdx == oldSlotIdx
-	//				在逻辑上会出现“死循环”，按常理是不允许的，万一触发则代表算法有问题
-	assert(context->twice == 0 || (context->wheelIdx != uOldWIdx || context->slotIdx != uOldSIdx));
-#else
-	__GetTickPos(context->expireTick, max((unsigned long long)0, context->expireTick - m_ullJiffies), 
-					context->wheelIdx, context->slotIdx);
-#endif
-	m_Wheels[context->wheelIdx]->m_Slots[context->slotIdx].push_back(context);
-}
-
-void	TimingWheel::__GetTickPos(unsigned int expireTick, unsigned int leftTick, unsigned int &rnWheelIdx, unsigned int &rnSlotIdx)
-{
-	rnWheelIdx = rnSlotIdx = 0;
-	for (int wIdx = WHEEL_COUNT - 1; wIdx > -1; --wIdx)
-	{
-		Wheel& rWheels = *m_Wheels[wIdx];
-		if (leftTick >= rWheels.uSlotUnitTick)
-		{
-			rnWheelIdx = wIdx;
-			rnSlotIdx = __GetTickSlotIdx(expireTick, leftTick, wIdx);
-			return;
+			cx->object->release();
+			cx->object = NULL;
 		}
-	}
-	// ATTENTION :	如果代码访问到这里，代表注册了一个nTimeLeft = 0的接口
-	//				如此以来很有可能形成一个逻辑"死循环"，在registCall的时候可以加以防范
+		rSlot.erase(itnd);
+		m_ContextMap.erase(itcx);
+		__FreeContext(cx);
+		return;
+	} // end for
 }
 
-int		TimingWheel::__GetTickSlotIdx(unsigned int expireTick, unsigned int leftTick, unsigned int nWheelIdx)
+void	TimingWheel::update(unsigned int elapse)
 {
-	Wheel& rWheel = *m_Wheels[nWheelIdx];
-	return (expireTick >> rWheel.uSlotUnitBit) & rWheel.uSlotMask;
-}
-
-void TimingWheel::__CascadeTimers(Wheel& rWheel)
-{
-	ContextSlot& slot = rWheel.m_Slots[rWheel.m_uSlotIdx];
-	while(!slot.empty())
-	{
-		context_cb* context = slot.front();
-		slot.pop_front();
-		__MoveContext(context);
-	}
-	rWheel.m_uSlotIdx = ((++rWheel.m_uSlotIdx) & rWheel.uSlotMask);
-}
-
-void	TimingWheel::__Callback(context_cb& context)
-{
-	if (context.object && context.func)
-	{
-		// FIXME : try{
-		(context.object->*context.func)(context.param, context.twice);
-		// FIXME : } catch(...) { /* do something */ }
-	}
-}
-
-void TimingWheel::update(unsigned int elapse)
-{
-	Wheel& rWheelRoot = *m_Wheels[0];
+	Wheel& rWheelWork = *m_Wheels[0];
 
 	while (elapse > 0)
 	{
 		// 已经走过一轮，将更高层wheel中的数据“转移”至下层
-		if (0 == rWheelRoot.m_uSlotIdx)
+		if (0 == rWheelWork.m_uSlotIdx)
 		{
 			int n = 1;
 			do {
@@ -183,8 +124,8 @@ void TimingWheel::update(unsigned int elapse)
 			} while (m_Wheels[n]->m_uSlotIdx == 1 && ++n < WHEEL_COUNT);
 		}
 
-		// 处理root wheel中当前tick所有callback
-		ContextSlot& rSlot = rWheelRoot.m_Slots[rWheelRoot.m_uSlotIdx];
+		// 处理work wheel中当前tick所有callback
+		ContextSlot& rSlot = rWheelWork.m_Slots[rWheelWork.m_uSlotIdx];
 		while (!rSlot.empty())
 		{
 			context_cb * context = rSlot.front();
@@ -217,8 +158,70 @@ void TimingWheel::update(unsigned int elapse)
 		}
 
 		++(m_ullJiffies);
-		rWheelRoot.m_uSlotIdx = (rWheelRoot.m_uSlotIdx + 1) & rWheelRoot.uSlotMask;
+		rWheelWork.m_uSlotIdx = (rWheelWork.m_uSlotIdx + 1) & rWheelWork.uSlotMask;
 		--elapse;
+	}
+}
+
+// 插入context
+void	TimingWheel::__AddContext(context_cb* context)
+{
+#ifdef _DEBUG
+	unsigned int uOldWIdx = context->wheelIdx, uOldSIdx = context->slotIdx;
+	__GetTickPos(context->expireTick, max((unsigned long long)0, context->expireTick - m_ullJiffies),
+		context->wheelIdx, context->slotIdx);
+	// ATTENTION :	再次注册的context_cb如果newWheelIdx == oldWheelIdx && newSlotIdx == oldSlotIdx
+	//				在逻辑上会出现“死循环”，按常理是不允许的，万一触发则代表算法有问题
+	assert(context->twice == 0 || (context->wheelIdx != uOldWIdx || context->slotIdx != uOldSIdx));
+#else
+	__GetTickPos(context->expireTick, max((unsigned long long)0, context->expireTick - m_ullJiffies), 
+					context->wheelIdx, context->slotIdx);
+#endif
+	m_Wheels[context->wheelIdx]->m_Slots[context->slotIdx].push_back(context);
+}
+
+void	TimingWheel::__GetTickPos(unsigned long long expireTick, unsigned int leftTick, unsigned int &rnWheelIdx, unsigned int &rnSlotIdx)
+{
+	rnWheelIdx = rnSlotIdx = 0;
+	for (int wIdx = WHEEL_COUNT - 1; wIdx > -1; --wIdx)
+	{
+		Wheel& rWheels = *m_Wheels[wIdx];
+		if (leftTick >= rWheels.uSlotUnitTick)
+		{
+			rnWheelIdx = wIdx;
+			rnSlotIdx = __GetTickSlotIdx(expireTick, leftTick, wIdx);
+			return;
+		}
+	}
+	// ATTENTION :	如果代码访问到这里，代表注册了一个nTimeLeft = 0的接口
+	//				如此以来很有可能形成一个逻辑"死循环"，在registCall的时候可以加以防范
+}
+
+int		TimingWheel::__GetTickSlotIdx(unsigned long long expireTick, unsigned int leftTick, unsigned int nWheelIdx)
+{
+	Wheel& rWheel = *m_Wheels[nWheelIdx];
+	return (expireTick >> rWheel.uSlotUnitBit) & rWheel.uSlotMask;
+}
+
+void	TimingWheel::__CascadeTimers(Wheel& rWheel)
+{
+	ContextSlot& slot = rWheel.m_Slots[rWheel.m_uSlotIdx];
+	while(!slot.empty())
+	{
+		context_cb* context = slot.front();
+		slot.pop_front();
+		__MoveContext(context);
+	}
+	rWheel.m_uSlotIdx = ((++rWheel.m_uSlotIdx) & rWheel.uSlotMask);
+}
+
+void	TimingWheel::__Callback(context_cb& context)
+{
+	if (context.object && context.func)
+	{
+		// FIXME : try{
+		(context.object->*context.func)(context.param, context.twice);
+		// FIXME : } catch(...) { /* do something */ }
 	}
 }
 

@@ -13,7 +13,6 @@ class MyObject;
 #define reg_call(delay, inter)	do {						\
 		MyObject* obj = new MyObject;						\
 		unsigned int delayTick = delay;						\
-		delayTick = max(1, delayTick);						\
 		unsigned int interTick = inter;						\
 		interTick = max(1, interTick);						\
 		obj->ident = wheel->delayIntervalCall(delayTick,	\
@@ -48,16 +47,16 @@ void MyObject::MyCallback(void* param, unsigned int twice)
 	{
 		DebugBreak();
 	}
-	sprintf_s(buf, sizeof(buf), "callback jiffies = 0x0%16X\n", wheel->m_ullJiffies);
-	if (file)
-	{
-		fwrite(buf, strlen(buf), 1, file);
-	}
-	printf(buf);
-	if (rand() % 8)
+// 	sprintf_s(buf, sizeof(buf), "callback jiffies = 0x0%16X\n", wheel->m_ullJiffies);
+// 	if (file)
+// 	{
+// 		fwrite(buf, strlen(buf), 1, file);
+// 	}
+// 	printf(buf);
+	if (twice == 8)
 	{
 		wheel->cancelCall(ident);
-		reg_call(this->delayTick % this->uInternal, this->uInternal);
+		//reg_call(this->delayTick % this->uInternal, this->uInternal);
 	}
 }
 
@@ -67,21 +66,39 @@ int main(int argc, char** argv)
 	wheel = new SG2D::TimingWheel;;
 	fopen_s(&file, "test_out.txt", "a+");
 	srand(time(NULL));
+	reg_call(0, 1);
+	reg_call(1, 1);
+	reg_call(1<<8, 1);
+	reg_call(1<<14, 1);
+	reg_call(1<<20, 1);
+	reg_call(1<<26, 1);
+	reg_call(1<<9 - 1, 1);
+	reg_call(1<<15 - 1, 1);
+	reg_call(1<<21 - 1, 1);
+	reg_call(1<<27 - 1, 1);
+	reg_call(1<<9 + 1, 1);
+	reg_call(1<<15 + 1, 1);
+	reg_call(1<<21 + 1, 1);
+	reg_call(1<<27 + 1, 1);
 	for (int i = 0; i < 10000; ++i)
 	{
-		if (rand() % 5)
-		{
-			reg_call(rand() % (1 << 15), rand() % (1 << 16));
-		}
-		else
-		{
-			reg_call(rand() % (1 << 8), rand() % (1 << 12));
-		}
+// 		if (rand() % 5)
+// 		{
+// 			reg_call(rand() % (1 << 15), rand() % (1 << 16));
+// 		}
+// 		else
+// 		{
+// 			reg_call(rand() % (1 << 8), rand() % (1 << 12));
+// 		}
 	}
 
-	for (unsigned int i = 0; i < (1 << 31); ++i)
+	for (unsigned int i = 0, j = 0; i < (1 << 31); ++i, ++j)
 	{
 		wheel->update(1);
+		if (j != 0 && j % 65563 == 0)
+		{
+			printf("deal 65536 ticks...\n");
+		}
 	}
 
 	fflush(file);

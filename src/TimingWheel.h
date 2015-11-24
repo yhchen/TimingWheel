@@ -12,8 +12,8 @@ using namespace std;
 
 class TimingWheel
 {
-
 public:
+	// callback函数格式
 	typedef void (Object::*DelayCall) (void* param, unsigned int twice);
 
 	//注册延时调用
@@ -76,9 +76,9 @@ public:
 	void update(unsigned int elapse/* tick */);
 
 protected:
-	static const int WHEEL_COUNT = 5;		//时间轮数量
-	static const int WHEEL_ROOT_BIT = 8;	//第0个时间轮2(param)次幂
-	static const int WHEEL_NODE_BIT = 6;	//其他时间轮2(param)次幂
+	static const int WHEEL_COUNT = 5;		//时间轮数量([1]工作轮 + [n-1]辅助轮)
+	static const int WORK_WHEEL_BIT = 8;	//工作轮2(param)次幂
+	static const int ASSIST_WHEEL_BIT = 6;	//辅助轮2(param)次幂
 
 	struct context_cb
 	{
@@ -112,10 +112,10 @@ protected:
 			{ }
 		const unsigned int	uBitCount;		//节点字节数
 		const unsigned int	uSlotCount;		//当前轮节点数量( POW(节点字节数) )
-		const unsigned int	uSlotUnitBit;	//每个时间片代表的时间单位(log 2(m_nTickUnit) )
-		const unsigned int	uSlotUnitTick;	//每个时间片代表的时间单位
-		const unsigned int	uSlotMask;		//当前结点“取模”用
-		unsigned int	m_uSlotIdx;			//记录当前时间点所指向的slotIdx
+		const unsigned int	uSlotUnitBit;	//每个slot字节数(log 2(uSlotUnitTick) )
+		const unsigned int	uSlotUnitTick;	//每个slot时间单位
+		const unsigned int	uSlotMask;		//当前wheel“取模”用
+		unsigned int	m_uSlotIdx;			//记录当前待处理slotIdx
 		ContextSlot*	m_Slots;
 	};
 
@@ -130,8 +130,8 @@ private:
 	inline void __RepushContext(context_cb* context) { __AddContext(context); }
 
 	// 计算时间轮与槽位下标
-	void	__GetTickPos(unsigned int expireTick, unsigned int leftTick, unsigned int &nWheelIdx, unsigned int &nSlotIdx);
-	int		__GetTickSlotIdx(unsigned int expireTick, unsigned int leftTick, unsigned int nWheelIdx);
+	void	__GetTickPos(unsigned long long expireTick, unsigned int leftTick, unsigned int &nWheelIdx, unsigned int &nSlotIdx);
+	int		__GetTickSlotIdx(unsigned long long expireTick, unsigned int leftTick, unsigned int nWheelIdx);
 
 	void	__CascadeTimers(Wheel& wheel);
 	void	__Callback(context_cb& context);
