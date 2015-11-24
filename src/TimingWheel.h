@@ -1,7 +1,11 @@
 #pragma once
-#include <list>
 #include <unordered_map>
 #include <assert.h>
+#ifdef _WIN32
+#	include "queue.h"
+#else
+#	include <sys/queue.h>
+#endif
 
 #include "Object.h"
 
@@ -94,9 +98,10 @@ protected:
 		unsigned int slotIdx;	// m_wheels[wheel]->m_slots[slot]
 		bool weakReference;		// 弱引用(不托管object对象生命周期)
 		bool removed;			// 移除标记
+		TAILQ_ENTRY(context_cb)	entry;	//fifo指针
 	};
 
-	typedef std::list<context_cb*> 	ContextSlot;
+	TAILQ_HEAD(ContextSlot, context_cb);
 	typedef unordered_map<const void*, context_cb*> ContextMap;
 
 	struct Wheel

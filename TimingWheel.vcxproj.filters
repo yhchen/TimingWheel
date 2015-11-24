@@ -21,5 +21,8 @@
     <ClInclude Include="src\TimingWheel.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="src\queue.h">
+      <Filter>src</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

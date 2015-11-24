@@ -53,7 +53,7 @@ void MyObject::MyCallback(void* param, unsigned int twice)
 // 		fwrite(buf, strlen(buf), 1, file);
 // 	}
 // 	printf(buf);
-	if (twice == 8)
+	if (twice == 256)
 	{
 		wheel->cancelCall(ident);
 		//reg_call(this->delayTick % this->uInternal, this->uInternal);
@@ -68,18 +68,18 @@ int main(int argc, char** argv)
 	srand(time(NULL));
 	reg_call(0, 1);
 	reg_call(1, 1);
-	reg_call(1<<8, 1);
-	reg_call(1<<14, 1);
-	reg_call(1<<20, 1);
-	reg_call(1<<26, 1);
-	reg_call(1<<9 - 1, 1);
-	reg_call(1<<15 - 1, 1);
-	reg_call(1<<21 - 1, 1);
-	reg_call(1<<27 - 1, 1);
-	reg_call(1<<9 + 1, 1);
-	reg_call(1<<15 + 1, 1);
-	reg_call(1<<21 + 1, 1);
-	reg_call(1<<27 + 1, 1);
+	reg_call((1<<8), 1);
+	reg_call((1<<14), 1);
+	reg_call((1<<20), 1);
+	reg_call((1<<26), 1);
+	reg_call((1<<9) - 1, 1);
+	reg_call((1<<15) - 1, 1);
+	reg_call((1<<21) - 1, 1);
+	reg_call((1<<27) - 1, 1);
+	reg_call((1<<9) + 1, 1);
+	reg_call((1<<15) + 1, 1);
+	reg_call((1<<21) + 1, 1);
+	reg_call((1<<27) + 1, 1);
 	for (int i = 0; i < 10000; ++i)
 	{
 // 		if (rand() % 5)

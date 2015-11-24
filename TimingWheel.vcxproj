@@ -16,6 +16,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Object.h" />
+    <ClInclude Include="src\queue.h" />
     <ClInclude Include="src\TimingWheel.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

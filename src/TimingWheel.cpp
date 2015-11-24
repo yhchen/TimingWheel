@@ -22,12 +22,13 @@ TimingWheel::TimingWheel() :m_ullJiffies(0)
 		unsigned int uSlotUnitBit = ((wIdx == 0) ? 0 : (WORK_WHEEL_BIT + ASSIST_WHEEL_BIT * (wIdx-1)));
 		unsigned int uSlotUnitTick = ((wIdx == 0) ? 0 : 1 << uSlotUnitBit);
 		unsigned int uSlotMask = uSlotCount - 1;
-		m_Wheels[wIdx] = new Wheel(uBitCount, uSlotCount, uSlotUnitBit, uSlotUnitTick, uSlotMask);
-		m_Wheels[wIdx]->m_Slots = new ContextSlot[m_Wheels[wIdx]->uSlotCount];
-		for (int sIdx = 0; sIdx < m_Wheels[wIdx]->uSlotCount; ++sIdx)
+		Wheel* pWheel = new Wheel(uBitCount, uSlotCount, uSlotUnitBit, uSlotUnitTick, uSlotMask);
+		pWheel->m_Slots = new ContextSlot[pWheel->uSlotCount];
+		for (int sIdx = 0; sIdx < pWheel->uSlotCount; ++sIdx)
 		{
-			// FIXME : 初始化节点
+			TAILQ_INIT(&pWheel->m_Slots[sIdx]);
 		}
+		m_Wheels[wIdx] = pWheel;
 	}
 }
 
@@ -39,11 +40,14 @@ TimingWheel::~TimingWheel()
 		for (unsigned int nNodeIdx = 0; nNodeIdx < pWheel->uSlotCount; ++nNodeIdx)
 		{
 			ContextSlot& slot = pWheel->m_Slots[nNodeIdx];
-			while (!slot.empty())
+			context_cb* context = NULL;
+			TAILQ_FOREACH(context, &slot, entry)
 			{
-				context_cb * pTickContext = slot.front();
-				__FreeContext(pTickContext);
-				slot.pop_front();
+				if (context)
+				{
+					TAILQ_REMOVE(&slot, context, entry);
+					__FreeContext(context);
+				}
 			}
 		}
 		delete[] pWheel->m_Slots;
@@ -92,21 +96,14 @@ void	TimingWheel::cancelCall(const void* ident)
 	}
 	Wheel& rWheel = *m_Wheels[context->wheelIdx];
 	ContextSlot& rSlot = rWheel.m_Slots[context->slotIdx];
-	for (ContextSlot::iterator itnd = rSlot.begin(); itnd != rSlot.end(); ++itnd)
+	if (!context->weakReference && context->object)
 	{
-		context_cb* cx = *itnd;
-		if (!cx || cx->ident != ident)
-			continue;
-		if (!cx->weakReference && cx->object)
-		{
-			cx->object->release();
-			cx->object = NULL;
-		}
-		rSlot.erase(itnd);
-		m_ContextMap.erase(itcx);
-		__FreeContext(cx);
-		return;
-	} // end for
+		context->object->release();
+		context->object = NULL;
+	}
+	TAILQ_REMOVE(&rSlot, context, entry);
+	__FreeContext(context);
+	m_ContextMap.erase(itcx);
 }
 
 void	TimingWheel::update(unsigned int elapse)
@@ -126,9 +123,10 @@ void	TimingWheel::update(unsigned int elapse)
 
 		// 处理work wheel中当前tick所有callback
 		ContextSlot& rSlot = rWheelWork.m_Slots[rWheelWork.m_uSlotIdx];
-		while (!rSlot.empty())
+		while (!TAILQ_EMPTY(&rSlot))
 		{
-			context_cb * context = rSlot.front();
+			context_cb * context = TAILQ_FIRST(&rSlot);
+			TAILQ_REMOVE(&rSlot, context, entry);
 			if (!context->removed)
 			{
 				m_pCurrCallIdent = context->ident;
@@ -154,7 +152,6 @@ void	TimingWheel::update(unsigned int elapse)
 				context->expireTick += context->interval;
 				__RepushContext(context);
 			}
-			rSlot.pop_front();
 		}
 
 		++(m_ullJiffies);
@@ -177,7 +174,8 @@ void	TimingWheel::__AddContext(context_cb* context)
 	__GetTickPos(context->expireTick, max((unsigned long long)0, context->expireTick - m_ullJiffies), 
 					context->wheelIdx, context->slotIdx);
 #endif
-	m_Wheels[context->wheelIdx]->m_Slots[context->slotIdx].push_back(context);
+	ContextSlot& rSlot = m_Wheels[context->wheelIdx]->m_Slots[context->slotIdx];
+	TAILQ_INSERT_TAIL(&rSlot, context, entry);
 }
 
 void	TimingWheel::__GetTickPos(unsigned long long expireTick, unsigned int leftTick, unsigned int &rnWheelIdx, unsigned int &rnSlotIdx)
@@ -205,11 +203,11 @@ int		TimingWheel::__GetTickSlotIdx(unsigned long long expireTick, unsigned int l
 
 void	TimingWheel::__CascadeTimers(Wheel& rWheel)
 {
-	ContextSlot& slot = rWheel.m_Slots[rWheel.m_uSlotIdx];
-	while(!slot.empty())
+	ContextSlot& rSlot = rWheel.m_Slots[rWheel.m_uSlotIdx];
+	while (!TAILQ_EMPTY(&rSlot))
 	{
-		context_cb* context = slot.front();
-		slot.pop_front();
+		context_cb* context = TAILQ_FIRST(&rSlot);
+		TAILQ_REMOVE(&rSlot, context, entry);
 		__MoveContext(context);
 	}
 	rWheel.m_uSlotIdx = ((++rWheel.m_uSlotIdx) & rWheel.uSlotMask);
