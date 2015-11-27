@@ -17,18 +17,17 @@ class MyObject;
 		interTick = max(1, interTick);						\
 		obj->ident = wheel->delayIntervalCall(delayTick,	\
 			interTick, obj, &MyObject::MyCallback, NULL);	\
-		obj->uInternal = interTick;							\
-		obj->delayTick = wheel->m_ullJiffies + delayTick;	\
+		vecRegedit.push_back(obj->ident);					\
 		obj->release();										\
 	}while (false)
 
 
-class MyObject : public Object
+class MyObject : public SG2D::Object
 {
 public:
-	typedef Object super;
+	typedef SG2D::Object super;
 
-	MyObject() : super() { uInternal = 0; delayTick = 0; memset(buf, 0x00, sizeof(buf)); }
+	MyObject() : super() { memset(buf, 0x00, sizeof(buf)); }
 	virtual ~MyObject() { }
 
 public:
@@ -36,24 +35,18 @@ public:
 
 public:
 	char buf[1024];
-	unsigned long long uInternal;
-	unsigned long long delayTick;
 	const void* ident;
 };
 
 void MyObject::MyCallback(void* param, unsigned int twice)
 {
-	if (twice * uInternal + delayTick != wheel->m_ullJiffies)
-	{
-		DebugBreak();
-	}
 // 	sprintf_s(buf, sizeof(buf), "callback jiffies = 0x0%16X\n", wheel->m_ullJiffies);
 // 	if (file)
 // 	{
 // 		fwrite(buf, strlen(buf), 1, file);
 // 	}
 // 	printf(buf);
-	if (twice == 256)
+	if (twice == 65536)
 	{
 		wheel->cancelCall(ident);
 		//reg_call(this->delayTick % this->uInternal, this->uInternal);
@@ -66,6 +59,7 @@ int main(int argc, char** argv)
 	wheel = new SG2D::TimingWheel;;
 	fopen_s(&file, "test_out.txt", "a+");
 	srand(time(NULL));
+	std::list<const void*> vecRegedit;
 	reg_call(0, 1);
 	reg_call(1, 1);
 	reg_call((1<<8), 1);
@@ -82,14 +76,14 @@ int main(int argc, char** argv)
 	reg_call((1<<27) + 1, 1);
 	for (int i = 0; i < 10000; ++i)
 	{
-// 		if (rand() % 5)
-// 		{
-// 			reg_call(rand() % (1 << 15), rand() % (1 << 16));
-// 		}
-// 		else
-// 		{
-// 			reg_call(rand() % (1 << 8), rand() % (1 << 12));
-// 		}
+		if (rand() % 5)
+		{
+			reg_call(rand() % (1 << 15), rand() % (1 << 16));
+		}
+		else
+		{
+			reg_call(rand() % (1 << 8), rand() % (1 << 12));
+		}
 	}
 
 	for (unsigned int i = 0, j = 0; i < (1 << 31); ++i, ++j)
@@ -97,6 +91,18 @@ int main(int argc, char** argv)
 		wheel->update(1);
 		if (j != 0 && j % 65563 == 0)
 		{
+			if (vecRegedit.size() > 0)
+			{
+				for (std::list<const void*>::iterator it = vecRegedit.begin(); it != vecRegedit.end(); )
+				{
+					if ((rand() % 128) == 0)
+					{
+						wheel->cancelCall(*it);
+						vecRegedit.erase(it++);
+					}
+					else ++it;
+				}
+			}
 			printf("deal 65536 ticks...\n");
 		}
 	}

@@ -7,13 +7,41 @@
 #	include <sys/queue.h>
 #endif
 
-#include "Object.h"
-
 
 namespace SG2D
 {
 using namespace std;
 
+class Object;
+
+/************************************************************************
+ * 时间轮方式实现的定时器
+ * 整理架构 :
+ *   m_Wheels[0]是workwheel，每个slot对应一个tick(ms)，当时间到了可以不需要
+ *   判定直接将该slot中所有callback处理掉。算法效率O(1)
+ *   m_Wheels[1 ~ WHEEL_COUNT-1]是assistwheel，每个slot的slotUnitTick都是
+ *   上一层slotCount * slotUnitTick。用于管理更大的时间基数。当下层的wheel
+ *   转完一圈后，将调用__cascadeTimers移动m_Slots[m_uSlotIdx]内定时器至下层
+ * 
+ * 
+ * example:
+ *   int main(int argc, char** argv) {
+ *       TimingWheel wheel;
+ *       bool terminal = false;
+ *       const int frameTick = 50;
+ *       int beginTick = getTickCount();
+ *       while (!terminal) {
+ *           wheel.update(frameTick);
+ *           int leftTick = frameTick - (GetTickCount() - beginTick);
+ *           if (leftTick > 0)
+ *           {
+ *               Sleep(leftTick);
+ *           }
+ *           beginTick += frameTick;
+ *       }
+ *       return 0;
+ *   }
+ ************************************************************************/
 class TimingWheel
 {
 public:
@@ -30,7 +58,7 @@ public:
 	template<typename OBJECTTYPE, typename DELAYCALLFN>
 	inline const void* delayCall(unsigned int delayMilSec, OBJECTTYPE* object, DELAYCALLFN func, void* param, bool weakReference = false)
 	{
-		return delayIntervalCall(delayMilSec, 0, object, func, param, 1, weakReference);
+		return delayIntervalCall(delayMilSec, 0xFFFF, object, func, param, 1, weakReference);
 	}
 
 	//注册定时调用
@@ -74,74 +102,37 @@ public:
 	TimingWheel();
 	~TimingWheel();
 
-	const void* _registerCall(unsigned int delayMilSec, unsigned int interval, Object* object, DelayCall func, void* param, unsigned int tiwce, bool weakReference);
-	void cancelCall(const void* id);
-
-	void update(unsigned int elapse/* tick */);
+	const void* _registerCall(unsigned int delayMilSec, unsigned int interval, Object* object, DelayCall func, void* param, unsigned int twice, bool weakReference);
+	void	cancelCall(const void* ident);	// 取消ident callback
+	void	update(unsigned int elapse/* tick */);	//通知流逝tickCount(ms) 一般在主循环中调用
+	void	removeAllCall();	// 移除所有callback
 
 protected:
-	static const int WHEEL_COUNT = 5;		//时间轮数量([1]工作轮 + [n-1]辅助轮)
+	static const int WHEEL_COUNT = 5;		//时间轮数量([0]work + [n-1]assist)
 	static const int WORK_WHEEL_BIT = 8;	//工作轮2(param)次幂
 	static const int ASSIST_WHEEL_BIT = 6;	//辅助轮2(param)次幂
 
-	struct context_cb
-	{
-		const void* ident;	// 唯一身份标识
-		Object*	object;		// callback object
-		DelayCall func;		// callback函数指针
-		void* param;		// callback参数(函数中传入)
-		unsigned long long interval;	// callback频率
-		unsigned long long expireTick;	// 下次callback时间(ms)
-		unsigned int twice;		// 当前callback次数
-		unsigned int maxTwice;	// 最大callback次数(0-不限制)
-		unsigned int wheelIdx;	// m_wheels[wheel]
-		unsigned int slotIdx;	// m_wheels[wheel]->m_slots[slot]
-		bool weakReference;		// 弱引用(不托管object对象生命周期)
-		bool removed;			// 移除标记
-		TAILQ_ENTRY(context_cb)	entry;	//fifo指针
-	};
-
+	struct Wheel;
+	struct context_cb;
 	TAILQ_HEAD(ContextSlot, context_cb);
 	typedef unordered_map<const void*, context_cb*> ContextMap;
 
-	struct Wheel
-	{
-		Wheel(	unsigned int bitCnt, 
-				unsigned int slotCnt, 
-				unsigned int slotUnitBit, 
-				unsigned int slotUnitTick, 
-				unsigned int slotMask
-			) : m_uSlotIdx(0), m_Slots(NULL), uBitCount(bitCnt), 
-				uSlotCount(slotCnt), uSlotUnitBit(slotUnitBit), 
-				uSlotUnitTick(slotUnitTick), uSlotMask(slotMask)
-			{ }
-		const unsigned int	uBitCount;		//节点字节数
-		const unsigned int	uSlotCount;		//当前轮节点数量( POW(节点字节数) )
-		const unsigned int	uSlotUnitBit;	//每个slot字节数(log 2(uSlotUnitTick) )
-		const unsigned int	uSlotUnitTick;	//每个slot时间单位
-		const unsigned int	uSlotMask;		//当前wheel“取模”用
-		unsigned int	m_uSlotIdx;			//记录当前待处理slotIdx
-		ContextSlot*	m_Slots;
-	};
-
 private:
 	// 默认使用 new 和 delete 管理context_cb内存，可以拓展为对象池管理提升效率
-	virtual context_cb* __AllocContext() { return (context_cb*)malloc(sizeof(context_cb)); }
-	virtual void __FreeContext(context_cb* cx) { if (cx) free(cx); }
+	virtual context_cb* __allocContext();
+	virtual void __freeContext(context_cb* cx);
 
 	// 插入context
-	inline void __AddContext(context_cb* context);
-	inline void __MoveContext(context_cb* context) { __AddContext(context); }
-	inline void __RepushContext(context_cb* context) { __AddContext(context); }
-
+	inline void __addContext(context_cb* context);
+	inline void __moveContext(context_cb* context) { __addContext(context); }
+	inline void __repushContext(context_cb* context) { __addContext(context); }
 	// 计算时间轮与槽位下标
-	void	__GetTickPos(unsigned long long expireTick, unsigned int leftTick, unsigned int &nWheelIdx, unsigned int &nSlotIdx);
-	int		__GetTickSlotIdx(unsigned long long expireTick, unsigned int leftTick, unsigned int nWheelIdx);
+	inline void	__getTickPos(unsigned long long expireTick, unsigned long long leftTick, unsigned int &nWheelIdx, unsigned int &nSlotIdx);
+	inline int	__getTickSlotIdx(unsigned long long expireTick, unsigned long long leftTick, unsigned int nWheelIdx);
+	// 移动assist wheel中context_cb
+	void		__cascadeTimers(Wheel& wheel);
 
-	void	__CascadeTimers(Wheel& wheel);
-	void	__Callback(context_cb& context);
-
-public:
+private:
 	unsigned long long	m_ullJiffies;			// 流逝的毫秒数
 	Wheel*				m_Wheels[WHEEL_COUNT];	// 时间轮
 	ContextMap			m_ContextMap;		// 记录回调的会话对应关系

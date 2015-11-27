@@ -11,13 +11,13 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="src\TimingWheel.cpp" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="src\Object.h" />
     <ClInclude Include="src\queue.h" />
     <ClInclude Include="src\TimingWheel.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\TimingWheel.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{092220EA-288E-4649-853F-B21166481271}</ProjectGuid>

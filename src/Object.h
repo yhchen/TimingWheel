@@ -21,7 +21,8 @@ inline int lock_dec(volatile unsigned int &n)
 	return InterlockedDecrement((long*)&n);
 }
 
-
+namespace SG2D
+{
 /**
 * 基础对象类，所有SG2D对象的基类。
 * 基础类具有引用计数，当对象的引用计数为0时对象会销毁自身。
@@ -74,5 +75,6 @@ public:
 		return ret & 0x7FFFFFFF;
 	}
 };
+}
 
 #endif
