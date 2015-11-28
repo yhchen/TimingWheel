@@ -133,11 +133,13 @@ private:
 	void		__cascadeTimers(Wheel& wheel);
 
 private:
-	unsigned long long	m_ullJiffies;			// 流逝的毫秒数
 	Wheel*				m_Wheels[WHEEL_COUNT];	// 时间轮
-	ContextMap			m_ContextMap;		// 记录回调的会话对应关系
-	size_t				m_nNextCallIdent;	// 每个context_cb的唯一Ident标识
-	const void*			m_pCurrCallIdent;	// 当前正在调用中的ident
+	const void*			m_pCurrCallIdent;		// 当前正在调用中的ident
+	size_t				m_uNextCallIdent;		// 每个context_cb的唯一Ident标识
+// 	unsigned int		m_uFrameTickUnit;		// 每一帧的毫秒数
+// 	unsigned int		m_uCachedTicks;			// update中传入的elapse可能非m_uFrameTickUnit整数倍，未处理的时间缓存在此
+	unsigned long long	m_ullJiffies;			// 流逝的时间片单位
+	ContextMap			m_ContextMap;			// 记录回调的会话对应关系
 };
 
 }

@@ -10,19 +10,20 @@ namespace SG2D{
 
 struct TimingWheel::context_cb
 {
+	TAILQ_ENTRY(context_cb)	entry;	//fifo指针
 	const void* ident;	// 唯一身份标识
 	Object*	object;		// callback object
 	DelayCall func;		// callback函数指针
 	void* param;		// callback参数(函数中传入)
-	unsigned long long interval;	// callback频率
 	unsigned long long expireTick;	// 下次callback时间(ms)
+	unsigned int interval;	// callback频率
 	unsigned int twice;		// 当前callback次数
 	unsigned int maxTwice;	// 最大callback次数(0-不限制)
 	unsigned int wheelIdx;	// m_wheels[wheel]
 	unsigned int slotIdx;	// m_wheels[wheel]->m_slots[slot]
 	bool weakReference;		// 弱引用(不托管object对象生命周期)
 	bool removed;			// 移除标记
-	TAILQ_ENTRY(context_cb)	entry;	//fifo指针
+	char _reserved[2];		// 8byte对齐(预留字段)
 };
 
 struct TimingWheel::Wheel
@@ -46,9 +47,12 @@ struct TimingWheel::Wheel
 };
 
 ///--------------------------------
-TimingWheel::TimingWheel() :m_ullJiffies(0)
+TimingWheel::TimingWheel() :
+// 	m_uFrameTickUnit(1),
+// 	m_uCachedTicks(0),
+	m_ullJiffies(0),
+	m_uNextCallIdent(1)
 {
-	m_nNextCallIdent = 1;
 	for (int wIdx = 0; wIdx < WHEEL_COUNT; ++wIdx)
 	{
 		unsigned int uBitCount = ((wIdx == 0) ? WORK_WHEEL_BIT : ASSIST_WHEEL_BIT);
@@ -83,7 +87,7 @@ const void* TimingWheel::_registerCall(unsigned int delayMilSec, unsigned int in
 {
 	context_cb* context = __allocContext();
 	context->object = object;
-	context->ident = (void*)(m_nNextCallIdent++);
+	context->ident = (void*)(m_uNextCallIdent++);
 	context->func = func;
 	context->param = param;
 	// interval=0会导致逻辑上死循环，所以强制不允许此方式
