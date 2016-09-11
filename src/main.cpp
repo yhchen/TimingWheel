@@ -5,7 +5,7 @@
 #include "TimingWheel.h"
 #include "Object.h"
 
-SG2D::TimingWheel* wheel;
+Timer::TimingWheel* wheel;
 FILE* file = NULL;
 
 class MyObject;
@@ -22,10 +22,10 @@ class MyObject;
 	}while (false)
 
 
-class MyObject : public SG2D::Object
+class MyObject : public Timer::Object
 {
 public:
-	typedef SG2D::Object super;
+	typedef Timer::Object super;
 
 	MyObject() : super() { memset(buf, 0x00, sizeof(buf)); }
 	virtual ~MyObject() { }
@@ -56,9 +56,9 @@ void MyObject::MyCallback(void* param, unsigned int twice)
 
 int main(int argc, char** argv)
 {
-	wheel = new SG2D::TimingWheel;;
+	wheel = new Timer::TimingWheel;
 	fopen_s(&file, "test_out.txt", "a+");
-	srand(time(NULL));
+	srand((unsigned int)time(NULL));
 	std::list<const void*> vecRegedit;
 	reg_call(0, 1);
 	reg_call(1, 1);
